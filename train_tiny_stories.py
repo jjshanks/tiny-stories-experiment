@@ -153,6 +153,40 @@ def load_from_cache(cache_key, step_name):
 
 
 # =====================
+# Prompt Selection Logic
+# =====================
+
+def determine_generation_prompt(args: argparse.Namespace) -> str:
+    """
+    Determines the text generation prompt based on command-line arguments.
+
+    Prioritizes arguments in the order: --prompt_text, --prompt_word, --filter_word.
+    Falls back to a default prompt if none are provided.
+
+    Args:
+        args: Parsed command-line arguments.
+
+    Returns:
+        The selected prompt string.
+    """
+    if args.prompt_text:
+        print(
+            f"Using full prompt text: '{args.prompt_text}' (overriding prompt/filter word)"
+        )
+        return args.prompt_text
+    elif args.prompt_word:
+        print(
+            f"Using '{args.prompt_word}' for generation prompt (overriding filter word)"
+        )
+        return f"Once upon a time, there was a {args.prompt_word}"
+    elif args.filter_word:
+        print(f"Using filter word '{args.filter_word}' for generation prompt")
+        return f"Once upon a time, there was a {args.filter_word}"
+    else:
+        print("Using default generation prompt")
+        return "Once upon a time, there was a little"
+
+# =====================
 # Dataset utilities
 # =====================
 
@@ -518,6 +552,17 @@ parser.add_argument(
 
 args = parser.parse_args()
 
+# --- New Validation Step ---
+# Validate that dimensions is divisible by heads
+if args.dimensions % args.heads != 0:
+    print(
+        f"\\nERROR: Embedding dimensions ({args.dimensions}) must be divisible by the number of attention heads ({args.heads})."
+    )
+    print("Tip: Adjust --dimensions or --heads.")
+    sys.exit(1)
+# --- End Validation Step ---
+
+
 # Device and precision selection
 if args.device:
     device = args.device
@@ -870,15 +915,8 @@ print(f"Model and tokenizer saved to {final_model_path}")
 # Step 12: Test the model with text generation
 print("\\nTesting the model with text generation:")
 
-# Determine the prompt based on arguments
-if args.prompt_text:
-    prompt = args.prompt_text
-elif args.prompt_word:
-    prompt = f"Once upon a time, there was a {args.prompt_word}"
-elif args.filter_word:
-    prompt = f"Once upon a time, there was a {args.filter_word}"
-else:
-    prompt = "Once upon a time, there was a little"
+# Determine the prompt using the new function
+prompt = determine_generation_prompt(args) # Use the extracted function
 
 print(f"Prompt: '{prompt}'")
 inputs = tokenizer(prompt, return_tensors="pt", padding=True)
@@ -922,14 +960,6 @@ if __name__ == "__main__":
     if args.filter_word:
         print(
             f"Dataset filtered to include only examples with the word: '{args.filter_word}'"
-        )
-    if args.prompt_word:
-        print(
-            f"Using '{args.prompt_word}' for generation prompt (overriding filter word)"
-        )
-    if args.prompt_text:
-        print(
-            f"Using full prompt text: '{args.prompt_text}' (overriding prompt/filter word)"
         )
     if args.continue_training:
         if start_epoch > 0:
