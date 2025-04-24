@@ -153,6 +153,40 @@ def load_from_cache(cache_key, step_name):
 
 
 # =====================
+# Prompt Selection Logic
+# =====================
+
+def determine_generation_prompt(args: argparse.Namespace) -> str:
+    """
+    Determines the text generation prompt based on command-line arguments.
+
+    Prioritizes arguments in the order: --prompt_text, --prompt_word, --filter_word.
+    Falls back to a default prompt if none are provided.
+
+    Args:
+        args: Parsed command-line arguments.
+
+    Returns:
+        The selected prompt string.
+    """
+    if args.prompt_text:
+        print(
+            f"Using full prompt text: '{args.prompt_text}' (overriding prompt/filter word)"
+        )
+        return args.prompt_text
+    elif args.prompt_word:
+        print(
+            f"Using '{args.prompt_word}' for generation prompt (overriding filter word)"
+        )
+        return f"Once upon a time, there was a {args.prompt_word}"
+    elif args.filter_word:
+        print(f"Using filter word '{args.filter_word}' for generation prompt")
+        return f"Once upon a time, there was a {args.filter_word}"
+    else:
+        print("Using default generation prompt")
+        return "Once upon a time, there was a little"
+
+# =====================
 # Dataset utilities
 # =====================
 
@@ -313,7 +347,7 @@ def tokenize_datasets(
 
 
 def setup_model_and_config(
-    tokenizer: GPT2Tokenizer, dimensions: int, layers: int, max_length: int
+    tokenizer: GPT2Tokenizer, dimensions: int, layers: int, heads: int, max_length: int
 ) -> Tuple[GPT2Config, Dict[str, Any]]:
     """
     Create a GPT2Config and model parameter dictionary for a small LLM.
@@ -321,6 +355,7 @@ def setup_model_and_config(
         tokenizer: The tokenizer to use.
         dimensions: Embedding dimension size.
         layers: Number of transformer layers.
+        heads: Number of attention heads.
         max_length: Maximum sequence length for the model.
     Returns:
         (config, model_params)
@@ -330,7 +365,7 @@ def setup_model_and_config(
         "n_positions": max_length,
         "n_embd": dimensions,
         "n_layer": layers,
-        "n_head": 8,
+        "n_head": heads, # Use the heads argument
         "pad_token_id": tokenizer.pad_token_id,
         "eos_token_id": tokenizer.eos_token_id,
     }
@@ -340,7 +375,7 @@ def setup_model_and_config(
         n_positions=model_params["n_positions"],
         n_embd=model_params["n_embd"],
         n_layer=model_params["n_layer"],
-        n_head=model_params["n_head"],
+        n_head=model_params["n_head"], # Use heads here
         pad_token_id=model_params["pad_token_id"],
         eos_token_id=model_params["eos_token_id"],
     )
@@ -399,6 +434,9 @@ parser.add_argument(
     "--layers", type=int, default=6, help="Number of transformer layers (default: 6)"
 )
 parser.add_argument(
+    "--heads", type=int, default=8, help="Number of attention heads (default: 8)"
+)
+parser.add_argument(
     "--filter_word",
     type=str,
     default=None,
@@ -408,7 +446,13 @@ parser.add_argument(
     "--prompt_word",
     type=str,
     default=None,
-    help="Word to use in generation prompt (overrides filter_word if specified)",
+    help="Word to use in generation prompt (e.g., 'dragon'). Overridden by --prompt_text.",
+)
+parser.add_argument(
+    "--prompt_text",
+    type=str,
+    default=None,
+    help="Full text prompt to use for generation (e.g., 'Once upon a time in a land far away'). Overrides --prompt_word.",
 )
 parser.add_argument(
     "--no_cache",
@@ -508,6 +552,17 @@ parser.add_argument(
 
 args = parser.parse_args()
 
+# --- New Validation Step ---
+# Validate that dimensions is divisible by heads
+if args.dimensions % args.heads != 0:
+    print(
+        f"\\nERROR: Embedding dimensions ({args.dimensions}) must be divisible by the number of attention heads ({args.heads})."
+    )
+    print("Tip: Adjust --dimensions or --heads.")
+    sys.exit(1)
+# --- End Validation Step ---
+
+
 # Device and precision selection
 if args.device:
     device = args.device
@@ -603,10 +658,10 @@ except Exception as e:
 # Step 5: Set up a small transformer model configuration
 try:
     config, model_params = setup_model_and_config(
-        tokenizer, args.dimensions, args.layers, args.max_length
+        tokenizer, args.dimensions, args.layers, args.heads, args.max_length
     )
 except Exception as e:
-    print("\nERROR: Failed to set up the model configuration.")
+    print("\\nERROR: Failed to set up the model configuration.")
     print("This may be due to invalid model parameters or tokenizer issues.")
     print("Tip: Try reducing --dimensions or --layers, or check the tokenizer setup.")
     print(f"Exception: {e}")
@@ -620,7 +675,7 @@ epoch_checkpoint_params = {
     "model_config": {
         "n_embd": args.dimensions,
         "n_layer": args.layers,
-        "n_head": 8,
+        "n_head": args.heads,
     },
     "filter_word": args.filter_word,
 }
@@ -659,6 +714,7 @@ if args.continue_training:
             start_epoch = target_epoch
             print(f"Starting from epoch {start_epoch}, effective epochs to train: 0")
             skip_training_due_to_checkpoint = True  # SET FLAG
+            print(f"Model loaded from checkpoint: {sum(p.numel() for p in model.parameters()) / 1000000:.2f}M parameters")
         # If requested epochs is greater than what we have, load the latest checkpoint
         elif args.epochs > latest_epoch:
             checkpoint_path = os.path.join(epoch_save_path, f"epoch-{latest_epoch}")
@@ -684,21 +740,18 @@ if args.continue_training:
                     f"Warning: No suitable checkpoint found for epoch <= {args.epochs}, starting from scratch"
                 )
                 model = GPT2LMHeadModel(config)
-        print(
-            f"Model loaded from checkpoint: {sum(p.numel() for p in model.parameters()) / 1000000:.2f}M parameters"
-        )
+                print(f"Model initialized with {sum(p.numel() for p in model.parameters()) / 1000000:.2f}M parameters")
+        else:
+            model = GPT2LMHeadModel(config)
+            print(f"Model initialized with {sum(p.numel() for p in model.parameters()) / 1000000:.2f}M parameters")
     else:
         print("No existing checkpoints found, initializing new model")
         model = GPT2LMHeadModel(config)
-        print(
-            f"Model initialized with {sum(p.numel() for p in model.parameters()) / 1000000:.2f}M parameters"
-        )
+        print(f"Model initialized with {sum(p.numel() for p in model.parameters()) / 1000000:.2f}M parameters")
 else:
     # Initialize a new model
     model = GPT2LMHeadModel(config)
-    print(
-        f"Model initialized with {sum(p.numel() for p in model.parameters()) / 1000000:.2f}M parameters"
-    )
+    print(f"Model initialized with {sum(p.numel() for p in model.parameters()) / 1000000:.2f}M parameters")
 
 # Step 7: Configure training parameters
 print("Setting up training configuration...")
@@ -812,7 +865,7 @@ training_params = {
     "model_config": {
         "n_embd": args.dimensions,
         "n_layer": args.layers,
-        "n_head": 8,
+        "n_head": args.heads,
     },
     "training_args": {
         "learning_rate": args.learning_rate,
@@ -860,12 +913,10 @@ tokenizer.save_pretrained(final_model_path)
 print(f"Model and tokenizer saved to {final_model_path}")
 
 # Step 12: Test the model with text generation
-print("\nTesting the model with text generation:")
-prompt_word = args.prompt_word if args.prompt_word is not None else args.filter_word
-if prompt_word:
-    prompt = f"Once upon a time, there was a {prompt_word}"
-else:
-    prompt = "Once upon a time, there was a little"
+print("\\nTesting the model with text generation:")
+
+# Determine the prompt using the new function
+prompt = determine_generation_prompt(args) # Use the extracted function
 
 print(f"Prompt: '{prompt}'")
 inputs = tokenizer(prompt, return_tensors="pt", padding=True)
@@ -905,14 +956,10 @@ if __name__ == "__main__":
     print(
         f"Training with {len(train_subset)} examples, total requested epochs: {args.epochs}"
     )
-    print(f"Model configuration: {args.dimensions} dimensions, {args.layers} layers")
+    print(f"Model configuration: {args.dimensions} dimensions, {args.layers} layers, {args.heads} heads")
     if args.filter_word:
         print(
             f"Dataset filtered to include only examples with the word: '{args.filter_word}'"
-        )
-    if args.prompt_word:
-        print(
-            f"Using '{args.prompt_word}' for generation prompt (overriding filter word)"
         )
     if args.continue_training:
         if start_epoch > 0:
