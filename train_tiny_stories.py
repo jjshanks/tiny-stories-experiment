@@ -62,9 +62,6 @@ Example transformer block (ASCII):
 import os
 import torch
 import argparse
-import hashlib
-import json
-import pickle
 import datetime
 from pathlib import Path
 from datasets import load_dataset
@@ -82,75 +79,8 @@ from typing import Any, Dict, Optional, Tuple
 import sys
 import time
 
-# =====================
-# Caching utilities
-# =====================
-
-
-def get_cache_key(params):
-    """
-    Generate a unique cache key based on input parameters.
-
-    This function creates a deterministic hash from parameter values,
-    allowing us to detect when computation can be reused.
-
-    Args:
-        params: Dictionary of parameters to hash
-
-    Returns:
-        String hash representing the unique parameter combination
-    """
-    param_str = json.dumps(params, sort_keys=True)
-    return hashlib.md5(param_str.encode()).hexdigest()
-
-
-def cache_exists(cache_key, step_name):
-    """
-    Check if a cache file exists for the given key and step.
-
-    Args:
-        cache_key: The hash key for the parameter set
-        step_name: The processing step (e.g., 'dataset_subsets', 'tokenized_datasets')
-
-    Returns:
-        Boolean indicating if cache exists
-    """
-    cache_file = CACHE_DIR / f"{step_name}_{cache_key}.pkl"
-    return cache_file.exists()
-
-
-def save_to_cache(data, cache_key, step_name):
-    """
-    Save data to cache file for future reuse.
-
-    Args:
-        data: The data to cache
-        cache_key: The hash key for the parameter set
-        step_name: The processing step being cached
-    """
-    cache_file = CACHE_DIR / f"{step_name}_{cache_key}.pkl"
-    with open(cache_file, "wb") as f:
-        pickle.dump(data, f)
-    print(f"Cached {step_name} to {cache_file}")
-
-
-def load_from_cache(cache_key, step_name):
-    """
-    Load previously processed data from cache.
-
-    Args:
-        cache_key: The hash key for the parameter set
-        step_name: The processing step to load
-
-    Returns:
-        The cached data
-    """
-    cache_file = CACHE_DIR / f"{step_name}_{cache_key}.pkl"
-    with open(cache_file, "rb") as f:
-        data = pickle.load(f)
-    print(f"Loaded {step_name} from cache {cache_file}")
-    return data
-
+# Import the new CacheManager
+from utils import CacheManager
 
 # =====================
 # Prompt Selection Logic
@@ -208,7 +138,11 @@ def load_tinystories_dataset() -> Any:
 
 
 def create_dataset_subsets(
-    dataset: Any, num_examples: int, filter_word: Optional[str], no_cache: bool
+    dataset: Any,
+    num_examples: int,
+    filter_word: Optional[str],
+    no_cache: bool,
+    cache_manager: CacheManager, # Add cache_manager parameter
 ) -> Tuple[Any, Any, str]:
     """
     Create (and cache) training and validation subsets from the TinyStories dataset.
@@ -217,13 +151,17 @@ def create_dataset_subsets(
         num_examples: Number of training examples to use.
         filter_word: Optional word to filter examples.
         no_cache: If True, disables caching.
+        cache_manager: Instance of CacheManager for handling caching. # Add cache_manager doc
     Returns:
         (train_subset, val_subset, dataset_cache_key)
     """
     dataset_params = {"num_examples": num_examples, "filter_word": filter_word}
-    dataset_cache_key = get_cache_key(dataset_params)
-    if not no_cache and cache_exists(dataset_cache_key, "dataset_subsets"):
-        cached_data = load_from_cache(dataset_cache_key, "dataset_subsets")
+    # Use cache_manager method
+    dataset_cache_key = cache_manager.get_cache_key(dataset_params)
+    # Use cache_manager method
+    if not no_cache and cache_manager.cache_exists(dataset_cache_key, "dataset_subsets"):
+        # Use cache_manager method
+        cached_data = cache_manager.load_from_cache(dataset_cache_key, "dataset_subsets")
         return cached_data["train_subset"], cached_data["val_subset"], dataset_cache_key
     subset_size = num_examples
     if filter_word:
@@ -253,7 +191,8 @@ def create_dataset_subsets(
     val_subset = dataset["train"].select(range(val_start_idx, val_start_idx + val_size))
     print(f"Created validation set with {len(val_subset)} examples")
     if not no_cache:
-        save_to_cache(
+        # Use cache_manager method
+        cache_manager.save_to_cache(
             {"train_subset": train_subset, "val_subset": val_subset},
             dataset_cache_key,
             "dataset_subsets",
@@ -287,6 +226,7 @@ def tokenize_datasets(
     dataset_cache_key: str,
     no_cache: bool,
     max_length: int,
+    cache_manager: CacheManager, # Add cache_manager parameter
 ) -> Tuple[Any, Any, str]:
     """
     Tokenize the training and validation datasets, with caching.
@@ -311,6 +251,7 @@ def tokenize_datasets(
         dataset_cache_key: Cache key for the dataset subset.
         no_cache: If True, disables caching.
         max_length: Maximum sequence length for tokenization.
+        cache_manager: Instance of CacheManager for handling caching. # Add cache_manager doc
     Returns:
         (tokenized_train, tokenized_val, tokenization_cache_key)
     """
@@ -334,9 +275,12 @@ def tokenize_datasets(
         "max_length": max_length,
         "tokenizer_name": "gpt2",
     }
-    tokenization_cache_key = get_cache_key(tokenization_params)
-    if not no_cache and cache_exists(tokenization_cache_key, "tokenized_datasets"):
-        cached_data = load_from_cache(tokenization_cache_key, "tokenized_datasets")
+    # Use cache_manager method
+    tokenization_cache_key = cache_manager.get_cache_key(tokenization_params)
+    # Use cache_manager method
+    if not no_cache and cache_manager.cache_exists(tokenization_cache_key, "tokenized_datasets"):
+        # Use cache_manager method
+        cached_data = cache_manager.load_from_cache(tokenization_cache_key, "tokenized_datasets")
         return (
             cached_data["tokenized_train"],
             cached_data["tokenized_val"],
@@ -350,7 +294,8 @@ def tokenize_datasets(
         tokenize_function, batched=True, desc="Tokenizing validation data"
     )
     if not no_cache:
-        save_to_cache(
+        # Use cache_manager method
+        cache_manager.save_to_cache(
             {"tokenized_train": tokenized_train, "tokenized_val": tokenized_val},
             tokenization_cache_key,
             "tokenized_datasets",
@@ -625,7 +570,8 @@ print("=================================\n")
 
 # Set up cache directory from argument
 CACHE_DIR = Path(args.cache_dir)
-CACHE_DIR.mkdir(exist_ok=True)
+# Instantiate CacheManager
+cache_manager = CacheManager(CACHE_DIR)
 
 # Step 1: Load the TinyStories dataset
 try:
@@ -642,7 +588,7 @@ except Exception as e:
 # Step 2: Create dataset subsets (with caching)
 try:
     train_subset, val_subset, dataset_cache_key = create_dataset_subsets(
-        tinystories, args.num_examples, args.filter_word, args.no_cache
+        tinystories, args.num_examples, args.filter_word, args.no_cache, cache_manager # Pass cache_manager
     )
 except Exception as e:
     print("\nERROR: Failed to create dataset subsets.")
@@ -668,7 +614,13 @@ except Exception as e:
 # Step 4: Apply tokenization to the dataset (with caching)
 try:
     tokenized_train, tokenized_val, tokenization_cache_key = tokenize_datasets(
-        train_subset, val_subset, tokenizer, dataset_cache_key, args.no_cache, 512
+        train_subset,
+        val_subset,
+        tokenizer,
+        dataset_cache_key,
+        args.no_cache,
+        args.max_length, # Use args.max_length here
+        cache_manager, # Pass cache_manager
     )
 except Exception as e:
     print("\nERROR: Failed to tokenize the dataset.")
@@ -703,7 +655,8 @@ epoch_checkpoint_params = {
     },
     "filter_word": args.filter_word,
 }
-epoch_checkpoint_key = get_cache_key(epoch_checkpoint_params)
+# Use cache_manager method
+epoch_checkpoint_key = cache_manager.get_cache_key(epoch_checkpoint_params)
 epoch_save_path = f"./results/epoch_checkpoints_{epoch_checkpoint_key}"
 os.makedirs(epoch_save_path, exist_ok=True)
 
@@ -899,8 +852,10 @@ training_params = {
         "num_train_epochs": args.epochs,
     },
 }
-training_cache_key = get_cache_key(training_params)
-model_cache_dir = CACHE_DIR / f"model_{training_cache_key}"
+# Use cache_manager method
+training_cache_key = cache_manager.get_cache_key(training_params)
+# Use the cache_manager's cache_dir attribute
+model_cache_dir = cache_manager.cache_dir / f"model_{training_cache_key}"
 
 if (should_use_cache or args.skip_training) and model_cache_dir.exists():
     print(f"Loading trained model from cache: {model_cache_dir}")

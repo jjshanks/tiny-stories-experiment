@@ -1,4 +1,5 @@
 __pycache__
 cache
 results
-tiny-story-experiments
+tiny-story-experiment*
+.vscode
