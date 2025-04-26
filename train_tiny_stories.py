@@ -142,7 +142,7 @@ def create_dataset_subsets(
     num_examples: int,
     filter_word: Optional[str],
     no_cache: bool,
-    cache_manager: CacheManager, # Add cache_manager parameter
+    cache_manager: CacheManager,
 ) -> Tuple[Any, Any, str]:
     """
     Create (and cache) training and validation subsets from the TinyStories dataset.
@@ -151,53 +151,50 @@ def create_dataset_subsets(
         num_examples: Number of training examples to use.
         filter_word: Optional word to filter examples.
         no_cache: If True, disables caching.
-        cache_manager: Instance of CacheManager for handling caching. # Add cache_manager doc
+        cache_manager: Instance of CacheManager for handling caching.
     Returns:
         (train_subset, val_subset, dataset_cache_key)
     """
     dataset_params = {"num_examples": num_examples, "filter_word": filter_word}
-    # Use cache_manager method
-    dataset_cache_key = cache_manager.get_cache_key(dataset_params)
-    # Use cache_manager method
-    if not no_cache and cache_manager.cache_exists(dataset_cache_key, "dataset_subsets"):
-        # Use cache_manager method
-        cached_data = cache_manager.load_from_cache(dataset_cache_key, "dataset_subsets")
-        return cached_data["train_subset"], cached_data["val_subset"], dataset_cache_key
-    subset_size = num_examples
-    if filter_word:
-        print(
-            f"Filtering dataset to include only examples with the word: '{filter_word}'"
-        )
+    
+    def compute_subsets():
+        print(f"Creating dataset subsets with {num_examples} examples...")
+        subset_size = num_examples
 
-        def filter_function(example):
-            return filter_word.lower() in example["text"].lower()
+        if filter_word:
+            print(f"Filtering dataset to include only examples with the word: '{filter_word}'")
 
-        filtered_dataset = dataset["train"].filter(
-            filter_function, desc=f"Filtering for '{filter_word}'"
-        )
-        print(f"Found {len(filtered_dataset)} examples containing '{filter_word}'")
-        if len(filtered_dataset) > subset_size:
-            train_subset = filtered_dataset.select(range(subset_size))
-        else:
-            train_subset = filtered_dataset
-            print(
-                f"Warning: Only {len(train_subset)} examples contain '{filter_word}', less than requested {subset_size}"
+            def filter_function(example):
+                return filter_word.lower() in example["text"].lower()
+
+            filtered_dataset = dataset["train"].filter(
+                filter_function, desc=f"Filtering for '{filter_word}'"
             )
-    else:
-        train_subset = dataset["train"].select(range(subset_size))
-    print(f"Using subset size: {len(train_subset)} training examples")
-    val_size = int(len(train_subset) * 0.1)
-    val_start_idx = subset_size if not filter_word else 0
-    val_subset = dataset["train"].select(range(val_start_idx, val_start_idx + val_size))
-    print(f"Created validation set with {len(val_subset)} examples")
-    if not no_cache:
-        # Use cache_manager method
-        cache_manager.save_to_cache(
-            {"train_subset": train_subset, "val_subset": val_subset},
-            dataset_cache_key,
-            "dataset_subsets",
-        )
-    return train_subset, val_subset, dataset_cache_key
+            print(f"Found {len(filtered_dataset)} examples containing '{filter_word}'")
+            if len(filtered_dataset) > subset_size:
+                train_subset = filtered_dataset.select(range(subset_size))
+            else:
+                train_subset = filtered_dataset
+                print(
+                    f"Warning: Only {len(train_subset)} examples contain '{filter_word}', less than requested {subset_size}"
+                )
+        else:
+            train_subset = dataset["train"].select(range(subset_size))
+            
+        print(f"Using subset size: {len(train_subset)} training examples")
+        val_size = int(len(train_subset) * 0.1)
+        val_start_idx = subset_size if not filter_word else 0
+        val_subset = dataset["train"].select(range(val_start_idx, val_start_idx + val_size))
+        print(f"Created validation set with {len(val_subset)} examples")
+        
+        return {"train_subset": train_subset, "val_subset": val_subset}
+    
+    # Use the new helper method
+    cached_data, dataset_cache_key = cache_manager.get_or_compute(
+        dataset_params, "dataset_subsets", compute_subsets, no_cache
+    )
+    
+    return cached_data["train_subset"], cached_data["val_subset"], dataset_cache_key
 
 
 # =====================
@@ -226,7 +223,7 @@ def tokenize_datasets(
     dataset_cache_key: str,
     no_cache: bool,
     max_length: int,
-    cache_manager: CacheManager, # Add cache_manager parameter
+    cache_manager: CacheManager,
 ) -> Tuple[Any, Any, str]:
     """
     Tokenize the training and validation datasets, with caching.
@@ -251,7 +248,7 @@ def tokenize_datasets(
         dataset_cache_key: Cache key for the dataset subset.
         no_cache: If True, disables caching.
         max_length: Maximum sequence length for tokenization.
-        cache_manager: Instance of CacheManager for handling caching. # Add cache_manager doc
+        cache_manager: Instance of CacheManager for handling caching.
     Returns:
         (tokenized_train, tokenized_val, tokenization_cache_key)
     """
@@ -275,32 +272,23 @@ def tokenize_datasets(
         "max_length": max_length,
         "tokenizer_name": "gpt2",
     }
-    # Use cache_manager method
-    tokenization_cache_key = cache_manager.get_cache_key(tokenization_params)
-    # Use cache_manager method
-    if not no_cache and cache_manager.cache_exists(tokenization_cache_key, "tokenized_datasets"):
-        # Use cache_manager method
-        cached_data = cache_manager.load_from_cache(tokenization_cache_key, "tokenized_datasets")
-        return (
-            cached_data["tokenized_train"],
-            cached_data["tokenized_val"],
-            tokenization_cache_key,
+    
+    def compute_tokenization():
+        print("Tokenizing the dataset (this might take a while)...")
+        tokenized_train = train_subset.map(
+            tokenize_function, batched=True, desc="Tokenizing training data"
         )
-    print("Tokenizing the dataset (this might take a while)...")
-    tokenized_train = train_subset.map(
-        tokenize_function, batched=True, desc="Tokenizing training data"
-    )
-    tokenized_val = val_subset.map(
-        tokenize_function, batched=True, desc="Tokenizing validation data"
-    )
-    if not no_cache:
-        # Use cache_manager method
-        cache_manager.save_to_cache(
-            {"tokenized_train": tokenized_train, "tokenized_val": tokenized_val},
-            tokenization_cache_key,
-            "tokenized_datasets",
+        tokenized_val = val_subset.map(
+            tokenize_function, batched=True, desc="Tokenizing validation data"
         )
-    return tokenized_train, tokenized_val, tokenization_cache_key
+        return {"tokenized_train": tokenized_train, "tokenized_val": tokenized_val}
+    
+    # Use the new helper method
+    cached_data, tokenization_cache_key = cache_manager.get_or_compute(
+        tokenization_params, "tokenized_datasets", compute_tokenization, no_cache
+    )
+    
+    return cached_data["tokenized_train"], cached_data["tokenized_val"], tokenization_cache_key
 
 
 # =====================

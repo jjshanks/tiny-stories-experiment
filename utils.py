@@ -1,9 +1,11 @@
-\
 import hashlib
 import json
 import pickle
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, Dict, Tuple, TypeVar
+
+# Define a generic type for our cached data
+T = TypeVar('T')
 
 class CacheManager:
     """Manages disk caching for intermediate results."""
@@ -16,7 +18,7 @@ class CacheManager:
             cache_dir: The directory to store cache files.
         """
         self.cache_dir = cache_dir
-        self.cache_dir.mkdir(exist_ok=True)
+        self.cache_dir.mkdir(exist_ok=True, parents=True)
         print(f"CacheManager initialized with directory: {self.cache_dir}")
 
     def get_cache_key(self, params: dict) -> str:
@@ -76,3 +78,29 @@ class CacheManager:
             data = pickle.load(f)
         print(f"Loaded {step_name} from cache {cache_file}")
         return data
+        
+    def get_or_compute(self, params: dict, step_name: str, compute_fn: Callable[[], T], 
+                      no_cache: bool = False) -> Tuple[T, str]:
+        """
+        Get data from cache if it exists, or compute and cache it if not.
+        
+        Args:
+            params: Parameters to generate the cache key.
+            step_name: Name of the processing step.
+            compute_fn: Function that computes the data if not in cache.
+            no_cache: If True, always compute and don't use/update cache.
+            
+        Returns:
+            A tuple of (computed_data, cache_key)
+        """
+        cache_key = self.get_cache_key(params)
+        
+        if not no_cache and self.cache_exists(cache_key, step_name):
+            return self.load_from_cache(cache_key, step_name), cache_key
+            
+        result = compute_fn()
+        
+        if not no_cache:
+            self.save_to_cache(result, cache_key, step_name)
+            
+        return result, cache_key
