@@ -64,7 +64,6 @@ import torch
 import argparse
 import datetime
 from pathlib import Path
-from datasets import load_dataset
 from transformers import (
     GPT2Tokenizer,
     GPT2LMHeadModel,
@@ -75,9 +74,7 @@ from transformers import (
     TrainerCallback,
 )
 import yaml
-from typing import Any, Dict, Optional, Tuple
 import sys
-import time
 
 # Import the new CacheManager
 from cache_utils import CacheManager
@@ -294,6 +291,12 @@ parser.add_argument(
     default=0.0,
     help="Ratio of total training steps used for linear warmup from 0 to learning_rate (default: 0.0)",
 )
+parser.add_argument(
+    "--dropout",
+    type=float,
+    default=0.1,
+    help="Dropout probability for model layers (default: 0.1)",
+)
 
 args = parser.parse_args()
 
@@ -419,8 +422,14 @@ except Exception as e:
 
 # Step 5: Set up a small transformer model configuration
 try:
+    # Pass dropout argument here
     config, model_params = setup_model_and_config(
-        tokenizer, args.dimensions, args.layers, args.heads, args.max_length
+        tokenizer,
+        args.dimensions,
+        args.layers,
+        args.heads,
+        args.max_length,
+        args.dropout,  # Pass the dropout value
     )
 except Exception as e:
     print("\\nERROR: Failed to set up the model configuration.")
@@ -438,6 +447,7 @@ epoch_checkpoint_params = {
         "n_embd": args.dimensions,
         "n_layer": args.layers,
         "n_head": args.heads,
+        "dropout": args.dropout, # Add dropout to cache key params
     },
     "filter_word": args.filter_word,
     "training_args": {
@@ -638,6 +648,7 @@ training_params = {
         "n_embd": args.dimensions,
         "n_layer": args.layers,
         "n_head": args.heads,
+        "dropout": args.dropout, # Add dropout to cache key params
     },
     "training_args": {
         "learning_rate": args.learning_rate,
@@ -645,16 +656,15 @@ training_params = {
         "per_device_train_batch_size": args.batch_size,
         "gradient_accumulation_steps": training_args.gradient_accumulation_steps,
         "num_train_epochs": args.epochs,
-        "warmup_ratio": args.warmup_ratio, # Add warmup_ratio to cache key params
+        "warmup_ratio": args.warmup_ratio,
     },
 }
-# Debug: Print cache key params and key
-print("[DEBUG] training_params for cache key:", training_params)
-training_cache_key = cache_manager.get_cache_key(training_params)
-print("[DEBUG] training_cache_key:", training_cache_key)
+# Calculate the training cache key using the parameters
+training_cache_key = cache_manager.get_cache_key(training_params) # Define training_cache_key here
+
 # Use the cache_manager's cache_dir attribute
 model_cache_dir = cache_manager.cache_dir / f"model_{training_cache_key}"
-print("[DEBUG] model_cache_dir:", model_cache_dir)
+print(f"Checking for cached model at: {model_cache_dir}")
 
 if (should_use_cache or args.skip_training) and model_cache_dir.exists():
     print(f"Loading trained model from cache: {model_cache_dir}")
