@@ -53,10 +53,12 @@ def create_dataset_subsets(
         else:
             train_subset = dataset["train"].select(range(subset_size))
         print(f"Using subset size: {len(train_subset)} training examples")
-        val_size = int(len(train_subset) * 0.1)
-        val_start_idx = subset_size if not filter_word else 0
-        val_subset = dataset["train"].select(range(val_start_idx, val_start_idx + val_size))
-        print(f"Created validation set with {len(val_subset)} examples")
+        # Use the actual validation split, proportional to the train subset
+        total_train = len(dataset["train"])
+        total_val = len(dataset["validation"])
+        val_size = max(1, int(total_val * (len(train_subset) / total_train)))
+        val_subset = dataset["validation"].select(range(val_size))
+        print(f"Created validation set with {len(val_subset)} examples from the validation split")
         return {"train_subset": train_subset, "val_subset": val_subset}
     cached_data, dataset_cache_key = cache_manager.get_or_compute(
         dataset_params, "dataset_subsets", compute_subsets, no_cache
