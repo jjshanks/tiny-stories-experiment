@@ -21,6 +21,19 @@ class CacheManager:
         self.cache_dir.mkdir(exist_ok=True, parents=True)
         print(f"CacheManager initialized with directory: {self.cache_dir}")
 
+    def _normalize_floats(self, obj):
+        """
+        Recursively format all floats in a dict/list to 6 decimal places for cache key stability.
+        """
+        if isinstance(obj, float):
+            return round(obj, 6)
+        elif isinstance(obj, dict):
+            return {k: self._normalize_floats(v) for k, v in obj.items()}
+        elif isinstance(obj, list):
+            return [self._normalize_floats(v) for v in obj]
+        else:
+            return obj
+
     def get_cache_key(self, params: dict) -> str:
         """
         Generate a unique cache key based on input parameters.
@@ -31,7 +44,8 @@ class CacheManager:
         Returns:
             String hash representing the unique parameter combination.
         """
-        param_str = json.dumps(params, sort_keys=True)
+        normalized_params = self._normalize_floats(params)
+        param_str = json.dumps(normalized_params, sort_keys=True)
         return hashlib.md5(param_str.encode()).hexdigest()
 
     def cache_exists(self, cache_key: str, step_name: str) -> bool:

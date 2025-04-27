@@ -440,6 +440,14 @@ epoch_checkpoint_params = {
         "n_head": args.heads,
     },
     "filter_word": args.filter_word,
+    "training_args": {
+        "learning_rate": args.learning_rate,
+        "weight_decay": 0.01,
+        "per_device_train_batch_size": args.batch_size,
+        "gradient_accumulation_steps": 4,
+        "num_train_epochs": args.epochs,
+        "warmup_ratio": args.warmup_ratio,
+    },
 }
 # Use cache_manager method
 epoch_checkpoint_key = cache_manager.get_cache_key(epoch_checkpoint_params)
@@ -637,13 +645,16 @@ training_params = {
         "per_device_train_batch_size": args.batch_size,
         "gradient_accumulation_steps": training_args.gradient_accumulation_steps,
         "num_train_epochs": args.epochs,
-        "warmup_ratio": args.warmup_ratio, # Add warmup ratio here
+        "warmup_ratio": args.warmup_ratio, # Add warmup_ratio to cache key params
     },
 }
-# Use cache_manager method
+# Debug: Print cache key params and key
+print("[DEBUG] training_params for cache key:", training_params)
 training_cache_key = cache_manager.get_cache_key(training_params)
+print("[DEBUG] training_cache_key:", training_cache_key)
 # Use the cache_manager's cache_dir attribute
 model_cache_dir = cache_manager.cache_dir / f"model_{training_cache_key}"
+print("[DEBUG] model_cache_dir:", model_cache_dir)
 
 if (should_use_cache or args.skip_training) and model_cache_dir.exists():
     print(f"Loading trained model from cache: {model_cache_dir}")
