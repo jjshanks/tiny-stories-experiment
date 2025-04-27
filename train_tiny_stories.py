@@ -308,6 +308,16 @@ if args.dimensions % args.heads != 0:
 # --- End Validation Step ---
 
 
+# --- New Validation Step for warmup_ratio ---
+if not (0.0 <= args.warmup_ratio <= 1.0):
+    print(
+        f"\\nERROR: warmup_ratio ({args.warmup_ratio}) must be between 0.0 and 1.0 (inclusive)."
+    )
+    print("Tip: Adjust --warmup_ratio to a value in this range.")
+    sys.exit(1)
+# --- End Validation Step ---
+
+
 # Device and precision selection
 if args.device:
     device = args.device
