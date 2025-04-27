@@ -288,6 +288,12 @@ parser.add_argument(
     default=None,
     help="Random seed for reproducibility (default: None, random behavior)",
 )
+parser.add_argument(
+    "--warmup_ratio",
+    type=float,
+    default=0.0,
+    help="Ratio of total training steps used for linear warmup from 0 to learning_rate (default: 0.0)",
+)
 
 args = parser.parse_args()
 
@@ -298,6 +304,16 @@ if args.dimensions % args.heads != 0:
         f"\\nERROR: Embedding dimensions ({args.dimensions}) must be divisible by the number of attention heads ({args.heads})."
     )
     print("Tip: Adjust --dimensions or --heads.")
+    sys.exit(1)
+# --- End Validation Step ---
+
+
+# --- New Validation Step for warmup_ratio ---
+if not (0.0 <= args.warmup_ratio <= 1.0):
+    print(
+        f"\\nERROR: warmup_ratio ({args.warmup_ratio}) must be between 0.0 and 1.0 (inclusive)."
+    )
+    print("Tip: Adjust --warmup_ratio to a value in this range.")
     sys.exit(1)
 # --- End Validation Step ---
 
@@ -526,6 +542,7 @@ training_args = TrainingArguments(
     metric_for_best_model="eval_loss",  # Use evaluation loss to determine the best model
     greater_is_better=False,  # Lower loss is better
     lr_scheduler_type=args.lr_scheduler_type,  # How the learning rate changes over time (e.g., 'linear' decay).
+    warmup_ratio=args.warmup_ratio, # Ratio of total steps for linear warmup
 )
 
 # Step 8: Create data collator for causal language modeling
@@ -620,6 +637,7 @@ training_params = {
         "per_device_train_batch_size": args.batch_size,
         "gradient_accumulation_steps": training_args.gradient_accumulation_steps,
         "num_train_epochs": args.epochs,
+        "warmup_ratio": args.warmup_ratio, # Add warmup ratio here
     },
 }
 # Use cache_manager method
@@ -720,6 +738,7 @@ if __name__ == "__main__":
         f"Training with {len(train_subset)} examples, total requested epochs: {args.epochs}"
     )
     print(f"Model configuration: {args.dimensions} dimensions, {args.layers} layers, {args.heads} heads")
+    print(f"Learning rate: {args.learning_rate}, Warmup ratio: {args.warmup_ratio}, LR Scheduler: {args.lr_scheduler_type}") # Added warmup_ratio here
     if args.filter_word:
         print(
             f"Dataset filtered to include only examples with the word: '{args.filter_word}'"
