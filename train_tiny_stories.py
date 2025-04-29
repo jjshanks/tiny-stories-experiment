@@ -219,8 +219,8 @@ parser.add_argument(
 parser.add_argument(
     "--gen_max_length",
     type=int,
-    default=128,
-    help="Max sequence length for text generation (default: 128)",
+    default=512,
+    help="Max sequence length for text generation (default: 512)",
 )
 parser.add_argument(
     "--device",
@@ -296,6 +296,13 @@ parser.add_argument(
     type=float,
     default=0.1,
     help="Dropout probability for model layers (default: 0.1)",
+)
+# Add CLI arg for gradient accumulation
+parser.add_argument(
+    "--gradient_accumulation_steps",
+    type=int,
+    default=4,
+    help="Number of steps to accumulate gradients before updating weights (default: 4)",
 )
 
 args = parser.parse_args()
@@ -454,7 +461,7 @@ epoch_checkpoint_params = {
         "learning_rate": args.learning_rate,
         "weight_decay": 0.01,
         "per_device_train_batch_size": args.batch_size,
-        "gradient_accumulation_steps": 4,
+        "gradient_accumulation_steps": args.gradient_accumulation_steps,
         "num_train_epochs": args.epochs,
         "warmup_ratio": args.warmup_ratio,
     },
@@ -554,7 +561,8 @@ training_args = TrainingArguments(
     num_train_epochs=effective_epochs,  # Train for the remaining epochs
     logging_steps=100,  # Log metrics every 100 steps
     fp16=fp16,  # Use mixed precision if specified or GPU available
-    gradient_accumulation_steps=4,  # Accumulate gradients over 4 steps before updating model weights. Increases effective batch size without using more memory (effective batch size = batch_size * accumulation_steps).
+    gradient_accumulation_steps=args.gradient_accumulation_steps,  # Accumulate gradients over N steps before updating model weights.
+    gradient_checkpointing=True,  # Enable gradient checkpointing to save memory during training
     report_to="none",  # Don't report to external services
     load_best_model_at_end=True,  # Load the best model (lowest eval loss) found during training at the end.
     metric_for_best_model="eval_loss",  # Use evaluation loss to determine the best model
@@ -653,8 +661,7 @@ training_params = {
     "training_args": {
         "learning_rate": args.learning_rate,
         "weight_decay": training_args.weight_decay,
-        "per_device_train_batch_size": args.batch_size,
-        "gradient_accumulation_steps": training_args.gradient_accumulation_steps,
+        "gradient_accumulation_steps": args.gradient_accumulation_steps,
         "num_train_epochs": args.epochs,
         "warmup_ratio": args.warmup_ratio,
     },
@@ -753,6 +760,46 @@ yaml_output = {"params": vars(args), "prompt": prompt, "output": generated_text}
 with open(generation_output_path, "w") as f:
     yaml.dump(yaml_output, f, default_flow_style=False, sort_keys=False)
 print(f"Generation output saved to {generation_output_path}")
+
+# --- Add Markdown Output ---
+md_template = """Imagine you are a teacher grading a student's writing assignment. The student was given the beginning of a story and asked to complete it. The exercise tests their language abilities and creativity.
+
+The text below shows the original story beginning, followed by ***, and then the student's completion.
+
+{prompt}
+***
+{generated_text}
+
+First, please provide a general assessment of the student's completion (the part after the ***). Comment on its grammatical correctness, consistency with the beginning, and flow. Specifically address how well the sentence that was split by the *** is completed.
+
+Now, please grade the student's completion based on the following criteria on a scale of 1 to 10 (10 being excellent):
+- Grammar
+- Creativity
+- Consistency with the provided beginning
+- Plot coherence (does the plot make sense?)
+
+Additionally, based on the writing style and content, provide your best guess of the student's age using these categories:
+A (3 or under)
+B (4-5)
+C (6-7)
+D (8-9)
+E (10-12)
+F (13-16)
+
+Please output the scores and age guess in the following format *after* your general assessment:
+Grammar: [Score]/10, Creativity: [Score]/10, Consistency: [Score]/10, Plot: [Score]/10, Age group: [Category]
+"""
+
+md_content = md_template.format(prompt=prompt, generated_text=generated_text)
+md_output_path = generation_output_path.replace(".yaml", ".md")
+try:
+    with open(md_output_path, "w") as f:
+        f.write(md_content)
+    print(f"Markdown grading template saved to {md_output_path}")
+except Exception as e:
+    print(f"Error writing Markdown file: {e}")
+# --- End Markdown Output ---
+
 
 if __name__ == "__main__":
     print(

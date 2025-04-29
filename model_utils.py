@@ -58,6 +58,7 @@ def setup_model_and_config(
         resid_pdrop=dropout,  # Apply dropout
         embd_pdrop=dropout,   # Apply dropout
         attn_pdrop=dropout,   # Apply dropout
+        use_cache=False,      # Disable KV cache when using gradient checkpointing to save memory
     )
     print(
         f"Model parameters: layers={config.n_layer}, heads={config.n_head}, embd_dim={config.n_embd}, dropout={dropout}"
